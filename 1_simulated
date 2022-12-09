@@ -1,0 +1,253 @@
+set obs 250000                     //create 250,000 observations
+gen id=_n                          //Create ID numbers
+set seed 1892                      //set random number seed for reproducibility
+
+gen year = 1 + int(11*uniform())
+tab year                           // year 0 = Christmas 2011, year 11 = Christmas 2021
+
+
+* For the sake of simplicity, and that Santa's data collection system is literally 
+* magical, there are no missing data * 
+
+********************************************************************************
+********************************************************************************
+
+
+************************
+** North Pole factors **
+************************
+
+* Number of elves on payroll on Christmas Eve * 
+* This varies by year, based on Union activity, HR skill, and North Pole labour policies * 
+gen number_elves = . 
+
+replace number_elves = 9223 if year==1 
+replace number_elves = 9166 if year==2 
+replace number_elves = 10555 if year==3 
+replace number_elves = 11675 if year==4 
+replace number_elves = 14401 if year==5 
+replace number_elves = 13002 if year==6 
+replace number_elves = 17900 if year==7 
+replace number_elves = 18552 if year==8 
+replace number_elves = 16111 if year==9 
+replace number_elves = 20937 if year==10 
+replace number_elves = 15022 if year==11
+
+
+
+* Number of reindeer - the same ones pull the sleigh, but the others help in the factory *
+* They enjoy working, btw... *  
+gen number_reindeer = . 
+
+replace number_reindeer = round(number_elves*2.1) if year==1 
+replace number_reindeer = round(number_elves*2.9) if year==2 
+replace number_reindeer = round(number_elves*3.1) if year==3 
+replace number_reindeer = round(number_elves*2.9) if year==4 
+replace number_reindeer = round(number_elves*3.5) if year==5 
+replace number_reindeer = round(number_elves*3.6) if year==6 
+replace number_reindeer = round(number_elves*4.0) if year==7 
+replace number_reindeer = round(number_elves*2.8) if year==8 
+replace number_reindeer = round(number_elves*3.3) if year==9 
+replace number_reindeer = round(number_elves*2.2) if year==10 
+replace number_reindeer = round(number_elves*2.5) if year==11
+
+
+********************************************************************************
+********************************************************************************
+
+
+********************************************
+** Meterological and geographical factors ** 
+********************************************
+
+** Region in UK ** 
+gen byte region = runiformint(1,23)                   // uniform distribution, integer values 
+tab region
+
+replace region = 1 if region==11 | region==12         // chunk up regions to vary their sizes 
+
+replace region = 3 if region==13 
+replace region = 4 if region==13 | region==14 | region==15
+replace region = 5 if region==16 | region==17 
+replace region = 6 if region==18 
+replace region = 10 if region>=19 
+
+la de regions 1 "Scotland" 2 "Wales" 3 "NE England" 4 "NW England" 5 "Yorkshire" 6 "E&W Midlands" 7 "South East" 8 "South Central" 9 "South West" 10 "London" 
+la val region regions 
+tab region
+
+
+** Temperature on your roof on Christmas Eve. This is different by year, and within each region ** 
+** Use nested loop to draw from normal distribution * 
+
+gen temp_christmas_eve = . 
+
+forval x = 1(1)10 { 
+	
+	forval y = 1(1)11 {
+	
+	gen u = rnormal(6,1.8) 
+	replace temp_christmas_eve = u if region==`x' & year==`y'
+	drop u
+	
+	}
+}
+
+
+********************************************************************************
+********************************************************************************
+
+*****************************
+** Child and house factors **
+*****************************
+ 
+* Generate sex var * 
+gen sex= 1 + int(2*uniform()) 
+replace sex=0 if sex==2 
+tab sex 
+
+* Generate age * 
+gen age=10+3 * invnorm(uniform())          // Age, with mean 10 and sd==3
+replace age = 18 if age>18 
+replace age = 0 if age<0
+summ age, det 
+histogram age, percent bin(100)   
+
+* Generate categorical variables * 
+forval x = 1(1)3 {
+	gen v`x' = 1 + int(7*uniform())        // Generate integers from uniform distribution
+}
+
+rename v1 naughty_or_nice              // 1 = naughty, 0 = nice
+rename v2 chimney                      // 1 = yes, 0 = no
+rename v3 offgrid                      // 0 = no, 1 = yes 
+
+replace naughty_or_nice = 0 if naughty_or_nice>=2   // Most people are nice  
+tab naughty_or_nice 
+
+replace chimney = 0 if chimney>=3                   // Most don't have a chimney
+replace chimney = 1 if chimney==2 
+tab chimney 
+
+replace offgrid = 0 if offgrid>=2                   // Santa has very good maps  
+
+tab naughty_or_nice 
+tab chimney 
+tab offgrid 
+
+* Chimney diameter (metres) * 
+gen chimney_diameter = 0.75+0.1 *invnorm(uniform())
+replace chimney_diam = 0.25 if chimney_diam<0.25 
+replace chimney_diam = . if chimney==0 
+summ chimney_diameter, det
+histogram chimney_diam, percent bin(100)
+
+* Number of letters sent to North Pole * 
+gen number_letters = 1 + 0.9*invnorm(uniform())
+replace number_letters = 0 if number_letters<0
+replace number_letters = round(number_letters)
+summ number_letters, det 
+
+* Impolite letters or not *
+gen impolite_letter = 0 + int(11*uniform())
+replace impolite_letter = 1 if impolite_letter>=8  
+replace impolite_letter = 0 if impolite_letter!=1 
+tab impolite_letter 
+
+* Grammar on letters (rating on a scale of 0 to 10) * 
+* Most kids try very hard to get their letter in order - so its skewed towards very good * 
+gen grammar = -ln(1-runiform())
+replace grammar = (-1*grammar) + 10
+replace grammar = 0 if grammar<0 
+histogram grammar, bin(100) percent 
+
+* Treat left for Santa * 
+gen treat_for_santa = 1 + int(6*uniform())
+tab treat_for_santa 
+replace treat_for_santa = 1 if treat_for_santa<=3
+replace treat_for_santa = 2 if treat_for_santa==4
+replace treat_for_santa = 3 if treat_for_santa>4
+tab treat_for_santa  
+
+la de treats 1 "Mince Pie" 2 "Carrots" 3 "Tipple"
+la val treat_for_santa treats 
+tab treat_for_santa 
+
+* Moved since last Christmas? * 
+gen moved_since_last_xmas = 1 + int(25*uniform())
+replace moved_since_last_xmas = 1 if moved_since_last_xmas>=4 & offgrid==1
+replace moved_since_last_xmas = 0 if moved_since >1
+tab moved_since_last_xmas 
+
+* Recepticle for gifts (stocking, etc.) * 
+gen recepticle = 0 + int(25*uniform())
+replace recepticle = 1 if recepticle >=18 
+replace recepticle = 2 if recepticle>=23
+replace recepticle = 0 if recepticle>=3
+la de recepts 0 "Stocking" 1 "Pillowcase" 2 "Other"
+la val recepticle recepts 
+tab recepticle  
+
+* Asleep when Santa arrives? * 
+gen asleep = 0 
+gen u = -ln(1-runiform())
+replace asleep = 1 if u<1.75
+tab asleep
+drop u 
+
+* Treats for reindeer? * 
+gen treats_for_reindeer = 0 
+gen u = -ln(1-runiform())
+replace treats_for_reindeer = 1 if u<1.95
+tab treats_for_reindeer 
+drop u 
+
+* Overall year behaviour rating * 
+gen annual_rating = .
+gen u = 0.6+0.1 *invnorm(uniform()) 
+replace u = 1 if u>1
+replace annual_rating = 100*u 
+summ annual_rating, det
+histogram annual_rating, percent  
+drop u 
+
+* Lights on for Santa on Christmas Eve? * 
+gen lights_on = 0 
+gen u = rbeta(5,0.75)
+replace lights_on = 1 if u>0.75
+tab lights_on
+drop u 
+
+sort year region 
+
+********************************************************************************
+********************************************************************************
+
+
+* Generate the outcome - say it is a function of the variables ('true model') * 
+* Pretend that some vars are non-informative variables * 
+* Make a non-linear association between some variables and the outcome (for FPs to pick up) *
+* Can tweak these to maniplate the number of non-visited kids *  
+* Effect sizes are logistic coefficient sca;e * 
+
+gen outcome = uniform() < invlogit(-1.6 - .0106*(asleep) - 0.03*(log(annual_rating)) - 
+              0.214*(log(number_elves/10000)) -0.0888*chimney + 0.313*offgrid - 0.019*((number_reindeer/10000)^2) + 
+              0.982*naughty - 0.409*treats_for_reindeer - 0.687*lights_on  - 0.0287*(log(grammar)) - 
+              0.688*treat_for_santa + 0.07*(number_letters^2) + 1.202*impolite_letter +  
+              0.002*(impolite_letter*naughty_or_nice) - 0.03*((annual_rating/10)^2)) 
+
+
+tab outcome 
+
+** Save the dataset ** 
+save "C:\Desktop\Stata Claus\dataset.dta", replace 
+
+
+* Fit a model - test it out * 
+logistic outcome number_elves number_reindeer temp_christmas_eve i.sex age i.naughty_or_nice 
+i.chimney i.offgrid number_letters i.impolite_letter grammar i.treat_for_santa i.moved_since_last_xmas 
+i.recepticle i.asleep i.treats_for_reindeer annual_rating i.lights_on
+
+* Will use fractional polynomials in the real thing * 
+
+clear all 
