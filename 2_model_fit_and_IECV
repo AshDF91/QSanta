@@ -1,0 +1,214 @@
+
+log using "C:\Desktop\Stata Claus\LOG_2_model_fitting_validation.smcl", replace 
+
+* Open data set * 
+use "C:\Desktop\Stata Claus\dataset.dta", clear 
+
+* Fractional polynomials for continuous variables * 
+
+fp <age>, center scale: logistic outcome <age> 
+fp <annual_rating>, center scale: logistic outcome <annual_rating> 
+fp <number_elves>, center scale: logistic outcome <number_elves> 
+fp <number_reindeer>, center scale: logistic outcome <number_reindeer> 
+fp <temp_christmas>, center zero: logistic outcome <temp_christmas> 
+fp <number_letters>, center scale: logistic outcome <number_letters> 
+
+notes 
+
+* Plot functional forms for each, then save graph * 
+
+foreach x in age annual_rating number_elves number_reindeer temp_christmas_eve number_letters {
+	
+	twoway fpfitci outcome `x' , graphregion(color(white)) title("`x'")
+
+	graph save "Graph" "C:\Desktop\Stata Claus\fp_term_`x'.gph", replace 
+	
+}
+
+* Fit the final model using the identified fractional polynomial terms * 
+
+logistic outcome i.sex i.naughty_or_nice i.chimney i.offgrid i.impolite_letter i.treat_for_santa i.moved_since_last_xmas 
+i.recepticle i.asleep i.treats_for_reindeer i.lights_on age_* annual_rating_* number_elves_* number_reindeer_* temp_christmas_eve_* number_letters_*
+
+parmest, list(,) saving(QSanta_final_model.dta, replace) eform label for(estimate min95 max95)  
+
+********************************************************************************
+********************************************************************************
+
+** Run internal-external cross-validation ** 
+
+* Generate empty columns for IECV-derived heldout predictions * 
+* Linear predictor and probability * 
+gen iecv_xb = . 
+gen iecv_pr = . 
+
+
+* Run the loop * 
+
+forval x = 1(1)10 {
+	
+	* Repeat fp selection process * 
+ qui fp <age>, center scale replace all: logistic outcome <age> if region!=`x'
+ qui fp <annual_rating>, center scale replace all: logistic outcome <annual_rating> if region!=`x'
+ qui fp <number_elves>, center scale replace all: logistic outcome <number_elves> if region!=`x'
+ qui fp <number_reindeer>, center scale replace all: logistic outcome <number_reindeer> if region!=`x'
+ qui fp <temp_christmas_eve>, center replace all zero: logistic outcome <temp_christmas_eve> if region!=`x'
+ qui fp <number_letters>, center scale replace all: logistic outcome <number_letters> if region!=`x'
+
+* Fit model on 9/10 regions
+logistic outcome i.sex i.naughty_or_nice i.chimney i.offgrid i.impolite_letter i.treat_for_santa i.moved_since_last_xmas i.recepticle i.asleep i.treats_for_reindeer i.lights_on age_* annual_rating_* number_elves_* number_reindeer_* temp_christmas_eve_* number_letters_* if region!=`x'
+
+* Generate predictions on heldout region for this loop iteration * 
+predict double xb if region==`x', xb 
+predict double pr if region==`x', pr 
+
+replace iecv_xb = xb if iecv_xb==. 
+replace iecv_pr = pr if iecv_pr==. 
+
+drop xb pr  	
+}
+
+summ iecv_xb, det 
+summ iecv_pr, det 
+
+* Performance assessment * 
+* Overall, pooled metrics * 
+
+brier outcome iecv_pr 
+logistic outcome iecv_xb, coef 
+
+* Calibration plot - risk groups * 
+pmcalplot iecv_pr outcome, ci nospike bin(20) nolowess 
+
+* Calibration plot - smoothed * 
+running outcome iecv_pr, ci leg(off) nopts graphregion(color(white)) title("Smoothed calibration plot", size(medium)) ytitle("Observed event probability", size(small)) xtitle("Predicted event probability", size(small))
+
+graph save "Graph" "C:\Desktop\Stata Claus\smoothed_calibration_plot.gph", replace 
+
+
+* Assess in each region, then pool with random-effects meta-analysis * 
+
+cd "C:\Desktop\Stata Claus\"
+
+******************
+* Discrimination * 
+******************
+capture postutil clear 
+tempname c_qsantaregion
+postfile `c_qsantaregion' beta st_err using c_qsantaregion, replace 
+
+forval x = 1(1)10 {
+	somersd outcome iecv_pr if region==`x', tdist tr(c)
+	local beta = r(table)[1,1]
+	local st_err = r(table)[2,1]
+	post `c_qsantaregion' (`beta') (`st_err')
+}
+
+postclose `c_qsantaregion'
+
+*********************
+* Calibration slope *
+********************* 
+capture postutil clear 
+tempname slope_qsantaregion
+postfile `slope_qsantaregion' beta st_err using slope_qsantaregion, replace 
+
+forval x = 1(1)10 {
+	
+	logistic outcome iecv_xb if region==`x', coef
+	local beta = r(table)[1,1]
+	local st_err = r(table)[2,1]
+	post `slope_qsantaregion' (`beta') (`st_err')
+}
+
+postclose `slope_qsantaregion'
+
+****************************
+* Calibration-in-the-large *
+****************************
+capture postutil clear 
+tempname citl_qsantaregion
+postfile `citl_qsantaregion' beta st_err using citl_qsantaregion, replace 
+
+forval x = 1(1)10 {
+	logistic outcome iecv_xb if region==`x', coef
+	local beta = r(table)[1,2]
+	local st_err = r(table)[2,2]
+	post `citl_qsantaregion' (`beta') (`st_err')
+}
+
+postclose `citl_qsantaregion' 
+ 
+* Numbers of events in each region * 
+tab region outcome 
+
+clear 
+
+
+** Random effects meta-analysis pooled performance metrics *  
+
+* C index * 
+use "c_qsantaregion.dta", clear  
+input str50 region 
+"Scotland (477 / 32,904)"
+"Wales (161 / 10,772)"
+"North East England (309/21,739)"
+"North West England (453 / 32,627)"
+"Yorkshire (456 / 32,479)"
+"Midlands (296 / 21,591)"
+"South East (168 / 10,796)"
+"South Central (133 / 10,688)"
+"South West (174 / 10,983)"
+"London (919 / 64,421)"
+//end 
+meta set beta st_err, studylab(region) 
+meta summarize, random(sjonkman) se(khartung) predinterval(95) 
+meta forestplot, random(sjonkman) se(khartung) predinterval(95)  
+graph save "Graph" "QSanta_auc.gph", replace  
+clear  
+
+* Calibration slope * 
+use "slope_qsantaregion.dta", clear  
+input str50 region 
+"Scotland (477 / 32,904)"
+"Wales (161 / 10,772)"
+"North East England (309/21,739)"
+"North West England (453 / 32,627)"
+"Yorkshire (456 / 32,479)"
+"Midlands (296 / 21,591)"
+"South East (168 / 10,796)"
+"South Central (133 / 10,688)"
+"South West (174 / 10,983)"
+"London (919 / 64,421)"
+
+meta set beta st_err, studylab(region) 
+meta summarize, random(sjonkman) se(khartung) predinterval(95) 
+meta forestplot, random(sjonkman) se(khartung) predinterval(95) xline(1)
+graph save "Graph" "QSanta_slope.gph", replace  
+clear  
+
+* Calibration-in-the-large * 
+use "citl_qsantaregion.dta", clear  
+input str50 region 
+"Scotland (477 / 32,904)"
+"Wales (161 / 10,772)"
+"North East England (309/21,739)"
+"North West England (453 / 32,627)"
+"Yorkshire (456 / 32,479)"
+"Midlands (296 / 21,591)"
+"South East (168 / 10,796)"
+"South Central (133 / 10,688)"
+"South West (174 / 10,983)"
+"London (919 / 64,421)"
+
+meta set beta st_err, studylab(region) 
+meta summarize, random(sjonkman) se(khartung) predinterval(95) 
+meta forestplot, random(sjonkman) se(khartung) predinterval(95) xline(0)
+graph save "Graph" "QSanta_citl.gph", replace  
+clear  
+
+clear all
+log close 
+
+********************************************************************************
+********************************************************************************
