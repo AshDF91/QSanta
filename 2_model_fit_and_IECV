@@ -131,9 +131,9 @@ tempname citl_qsantaregion
 postfile `citl_qsantaregion' beta st_err using citl_qsantaregion, replace 
 
 forval x = 1(1)10 {
-	logistic outcome iecv_xb if region==`x', coef
-	local beta = r(table)[1,2]
-	local st_err = r(table)[2,2]
+	logistic outcome if region==`x', coef offset(iecv_xb)
+	local beta = _b[_cons]
+	local st_err = _se[_cons]
 	post `citl_qsantaregion' (`beta') (`st_err')
 }
 
@@ -147,7 +147,7 @@ clear
 
 ** Random effects meta-analysis pooled performance metrics *  
 
-* C index * 
+* C statistic * 
 use "c_qsantaregion.dta", clear  
 input str50 region 
 "Scotland (477 / 32,904)"
